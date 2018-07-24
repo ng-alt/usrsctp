@@ -42,6 +42,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#if !defined(PJ_MIPS) && !defined(ROUTER)
 #if defined(__Userspace_os_Darwin) || defined (__Userspace_os_Windows)
 #if defined (__Userspace_os_Windows)
 #define atomic_add_int(addr, val) InterlockedExchangeAdd((LPLONG)addr, (LONG)val)
@@ -76,14 +77,14 @@
 		*addr = 0; \
 	} \
 }
-#endif
 #if defined(__Userspace_os_Windows)
 static void atomic_init() {} /* empty when we are not using atomic_mtx */
 #else
 static inline void atomic_init() {} /* empty when we are not using atomic_mtx */
 #endif
+#endif
 
-#else
+#else // !defined(__Userspace_os_Darwin) && !defined (__Userspace_os_Windows)
 /* Using gcc built-in functions for atomic memory operations
    Reference: http://gcc.gnu.org/onlinedocs/gcc-4.1.0/gcc/Atomic-Builtins.html
    Requires gcc version 4.1.0
@@ -134,6 +135,7 @@ static inline void atomic_init() {} /* empty when we are not using atomic_mtx */
 #endif
 static inline void atomic_init() {} /* empty when we are not using atomic_mtx */
 #endif
+#endif // PJ_MIPS
 
 #if 0 /* using libatomic_ops */
 #include "user_include/atomic_ops.h"
@@ -167,7 +169,7 @@ static inline void atomic_init() {} /* empty when we are not using atomic_mtx */
 static inline void atomic_init() {} /* empty when we are not using atomic_mtx */
 #endif /* closing #if for libatomic */
 
-#if 0 /* using atomic_mtx */
+#if defined(PJ_MIPS) || defined(ROUTER) /* using atomic_mtx */
 
 #include <pthread.h>
 
@@ -188,38 +190,46 @@ static inline void atomic_unlock() {
 }
 #else
 static inline void atomic_init() {
-	pthread_mutexattr_t mutex_attr;
-
-	pthread_mutexattr_init(&mutex_attr);
-#ifdef INVARIANTS
-	pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_ERRORCHECK);
-#endif
-	pthread_mutex_init(&accept_mtx, &mutex_attr);
-	pthread_mutexattr_destroy(&mutex_attr);
+	(void)pthread_mutex_init(&atomic_mtx, NULL);
 }
 static inline void atomic_destroy() {
 	(void)pthread_mutex_destroy(&atomic_mtx);
 }
 static inline void atomic_lock() {
-#ifdef INVARIANTS
-	KASSERT(pthread_mutex_lock(&atomic_mtx) == 0, ("atomic_lock: atomic_mtx already locked"))
-#else
 	(void)pthread_mutex_lock(&atomic_mtx);
-#endif
 }
 static inline void atomic_unlock() {
-#ifdef INVARIANTS
-	KASSERT(pthread_mutex_unlock(&atomic_mtx) == 0, ("atomic_unlock: atomic_mtx not locked"))
-#else
 	(void)pthread_mutex_unlock(&atomic_mtx);
-#endif
 }
 #endif
+#if defined(PJ_MIPS) || defined(ROUTER)
+static __inline u_int
+atomic_fetchadd_int(volatile void *n, u_int v)
+{
+	int tmp = *(int *)n;
+	atomic_lock();
+	*(int *)n += v; 
+	atomic_unlock();
+	return tmp;
+}
+
+static __inline int
+atomic_cmpset_int(volatile u_int *dst, u_int exp, u_int src)                                                                                                                                                 
+{
+	atomic_lock();
+	if (*dst == exp) {
+	  *dst = src;
+	  atomic_unlock();
+	  return 1;
+	}
+	atomic_unlock();
+	return 0;
+}
+#else
 /*
  * For userland, always use lock prefixes so that the binaries will run
  * on both SMP and !SMP systems.
- */
-
+*/
 #define	MPLOCKED	"lock ; "
 
 /*
@@ -243,7 +253,6 @@ atomic_fetchadd_int(volatile void *n, u_int v)
 	return (v);
 }
 
-
 #ifdef CPU_DISABLE_CMPXCHG
 
 static __inline int
@@ -252,6 +261,7 @@ atomic_cmpset_int(volatile u_int *dst, u_int exp, u_int src)
 	u_char res;
 
 	atomic_lock();
+
 	__asm __volatile(
 	"	pushfl ;		"
 	"	cli ;			"
@@ -299,6 +309,9 @@ atomic_cmpset_int(volatile u_int *dst, u_int exp, u_int src)
 }
 
 #endif /* CPU_DISABLE_CMPXCHG */
+#endif /* PJ_MIPS || ROUTER */
+
+#define SCTP_DECREMENT_AND_CHECK_REFCOUNT(addr) (atomic_fetchadd_int(addr, -1) == 1)
 
 #define atomic_add_int(P, V)	 do {   \
 		atomic_lock();          \
@@ -310,6 +323,26 @@ atomic_cmpset_int(volatile u_int *dst, u_int exp, u_int src)
 		(*(u_int *)(P) -= (V));   \
 		atomic_unlock();          \
 } while(0)
+
+#if defined(INVARIANTS)
+#define SCTP_SAVE_ATOMIC_DECREMENT(addr, val) \
+{ \
+	int32_t oldval; \
+	oldval = atomic_fetchadd_int(addr, -val); \
+	if (oldval < val) { \
+	panic("Counter goes negative"); \
+	} \
+}
+#else
+#define SCTP_SAVE_ATOMIC_DECREMENT(addr, val) \
+{ \
+	int32_t oldval; \
+	oldval = atomic_fetchadd_int(addr, -val); \
+	if (oldval < val) { \
+	*addr = 0; \
+	} \
+}
+#endif
 
 #endif
 #endif

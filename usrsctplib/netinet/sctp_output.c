@@ -4973,6 +4973,7 @@ sctp_lowlevel_chunk_output(struct sctp_inpcb *inp,
 #if defined(__Userspace__)
 	case AF_CONN:
 	{
+		char static_buf[2000];
 		char *buffer;
 		struct sockaddr_conn *sconn;
 		int len;
@@ -5009,12 +5010,17 @@ sctp_lowlevel_chunk_output(struct sctp_inpcb *inp,
 			tos_value |= sctp_get_ect(stcb);
 		}
 		/* Don't alloc/free for each packet */
-		if ((buffer = malloc(packet_length)) != NULL) {
-			m_copydata(m, 0, packet_length, buffer);
-			ret = SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, buffer, packet_length, tos_value, nofragment_flag);
-			free(buffer);
+		if (packet_length <= sizeof(static_buf)) {
+			m_copydata(m, 0, packet_length, static_buf);
+			ret = SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, static_buf, packet_length, tos_value, nofragment_flag);
 		} else {
-			ret = ENOMEM;
+			if ((buffer = malloc(packet_length)) != NULL) {
+				m_copydata(m, 0, packet_length, buffer);
+				ret = SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, buffer, packet_length, tos_value, nofragment_flag);
+				free(buffer);
+			} else {
+				ret = ENOMEM;
+			}
 		}
 		sctp_m_freem(m);
 		return (ret);
@@ -11736,6 +11742,7 @@ sctp_send_resp_msg(struct sockaddr *src, struct sockaddr *dst,
 #if defined(__Userspace__)
 	case AF_CONN:
 	{
+		char *static_buf[2000];
 		char *buffer;
 		struct sockaddr_conn *sconn;
 
@@ -11752,10 +11759,15 @@ sctp_send_resp_msg(struct sockaddr *src, struct sockaddr *dst,
 		}
 #endif
 		/* Don't alloc/free for each packet */
-		if ((buffer = malloc(len)) != NULL) {
-			m_copydata(mout, 0, len, buffer);
-			SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, buffer, len, 0, 0);
-			free(buffer);
+		if (len <= sizeof(static_buf)) {
+			m_copydata(mout, 0, len, static_buf);
+			SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, static_buf, len, 0, 0);
+		} else {
+			if ((buffer = malloc(len)) != NULL) {
+				m_copydata(mout, 0, len, buffer);
+				SCTP_BASE_VAR(conn_output)(sconn->sconn_addr, buffer, len, 0, 0);
+				free(buffer);
+			}
 		}
 		sctp_m_freem(mout);
 		break;

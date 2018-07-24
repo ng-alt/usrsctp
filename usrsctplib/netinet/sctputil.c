@@ -4821,13 +4821,18 @@ sctp_add_to_readq(struct sctp_inpcb *inp,
 		    (stcb != NULL) && (stcb->sctp_socket != NULL)) {
 			struct socket *so;
 			struct mbuf *m;
+			char static_buf[2000];
 			char *buffer;
 			struct sctp_rcvinfo rcv;
 			union sctp_sockstore addr;
 			int flags;
 
-			if ((buffer = malloc(control->length)) == NULL) {
-				return;
+			if (control->length <= sizeof(static_buf)) {
+				buffer = static_buf;
+			} else {
+				if ((buffer = malloc(control->length)) == NULL) {
+					return;
+				}
 			}
 			so = stcb->sctp_socket;
 			for (m = control->data; m; m = SCTP_BUF_NEXT(m)) {
@@ -5050,13 +5055,18 @@ sctp_append_to_readq(struct sctp_inpcb *inp,
 		if (((control->end_added == 1) || (length >= pd_point)) &&
 		    ((stcb != NULL) && (stcb->sctp_socket))) {
 			struct socket *so;
+			char static_buf[2000];
 			char *buffer;
 			struct sctp_rcvinfo rcv;
 			union sctp_sockstore addr;
 			int flags;
 
-			if ((buffer = malloc(control->length)) == NULL) {
-				return (-1);
+			if (control->length <= sizeof(static_buf)) {
+				buffer = static_buf;
+			} else {
+				if ((buffer = malloc(control->length)) == NULL) {
+					return (-1);
+				}
 			}
 			so = stcb->sctp_socket;
 			for (m = control->data; m; m = SCTP_BUF_NEXT(m)) {

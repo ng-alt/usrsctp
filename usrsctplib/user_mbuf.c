@@ -351,7 +351,7 @@ mbuf_init(void *dummy)
 #else
 	zone_mbuf = umem_cache_create(MBUF_MEM_NAME, MSIZE, 0,
 	                              mb_ctor_mbuf, mb_dtor_mbuf, NULL,
-	                              NUULL,
+	                              NULL,
 	                              NULL, 0);
 #endif
 	/*zone_ext_refcnt = umem_cache_create(MBUF_EXTREFCNT_MEM_NAME, sizeof(u_int), 0,
